@@ -51,6 +51,23 @@ export function createScene(app) {
   bodyMat.useMetalness = true;
   bodyMat.update();
 
+  // Paused variant: subtle blue-white tint so the user can tell it's frozen
+  const pausedMat = new pc.StandardMaterial();
+  pausedMat.diffuse = new pc.Color(0.12, 0.14, 0.22);
+  pausedMat.shininess = 60;
+  pausedMat.metalness = 0.1;
+  pausedMat.useMetalness = true;
+  pausedMat.update();
+
+  // ── Paused state ───────────────────────────────────────────────────────────
+  const pausedIds = new Set(); // set of macaroni ids that are frozen
+
+  // ── GPU picker (instantiated once, resized if canvas changes) ─────────────
+  const picker = new pc.Picker(app, app.graphicsDevice.width, app.graphicsDevice.height);
+  app.graphicsDevice.on('resizecanvas', () => {
+    picker.resize(app.graphicsDevice.width, app.graphicsDevice.height);
+  });
+
   // ── Build initial grid from default layout ────────────────────────────────
   let macaroniEntities = [];
   let layout = DEFAULT_LAYOUT;
@@ -99,6 +116,39 @@ export function createScene(app) {
 
   buildGrid(DEFAULT_LAYOUT);
 
+  // ── Click / tap to pause/resume individual macaronis ──────────────────────
+  function togglePause(entity) {
+    const id = entity._macaroniId;
+    if (pausedIds.has(id)) {
+      pausedIds.delete(id);
+      entity.render.meshInstances[0].material = bodyMat;
+    } else {
+      pausedIds.add(id);
+      entity.render.meshInstances[0].material = pausedMat;
+    }
+  }
+
+  function pickAtScreen(x, y) {
+    picker.prepare(cameraEntity.camera, app.scene);
+    const hits = picker.getSelection(x, y);
+    if (hits.length === 0) return;
+    const mi = hits[0];
+    for (const e of macaroniEntities) {
+      if (e.render.meshInstances[0] === mi) {
+        togglePause(e);
+        return;
+      }
+    }
+  }
+
+  app.mouse.on(pc.EVENT_MOUSEDOWN, (ev) => {
+    if (ev.button === pc.MOUSEBUTTON_LEFT) pickAtScreen(ev.x, ev.y);
+  });
+
+  app.touch.on(pc.EVENT_TOUCHSTART, (ev) => {
+    if (ev.touches.length === 1) pickAtScreen(ev.touches[0].x, ev.touches[0].y);
+  });
+
   // Kick off demo animation while waiting for WebSocket
   let demoRunning = true;
   let demoT = 0;
@@ -128,11 +178,9 @@ export function createScene(app) {
     for (const m of frame.macaronis) {
       const entity = macaroniEntities[m.id];
       if (!entity) continue;
+      if (pausedIds.has(m.id)) continue; // frozen — keep last angle + LEDs
 
-      // Rotate the macaroni entity around its pivot
       entity.setEulerAngles(0, 0, (m.angle * 180) / Math.PI);
-
-      // Update LED glow lights
       updateLedLights(entity._ledLights, m);
     }
   }

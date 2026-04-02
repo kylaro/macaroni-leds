@@ -15,8 +15,11 @@ export function DEMO_FRAME(t, layout) {
     const col = i % layout.columns;
     const row = Math.floor(i / layout.columns);
 
-    // Wave offset by grid position
-    const phase = (col + row * 0.6) * 0.4;
+    // Phase offset in multiples of 60° (π/3) so arc endpoints can align with
+    // hex edge midpoints of adjacent cells, forming Truchet connections.
+    // Alternating pattern based on hex parity gives a mix of connected paths.
+    const hexParity = (col + row) % 2;
+    const phase = hexParity * (Math.PI / 3);
     const angle = t * 0.4 + phase;
 
     // Rainbow hue shifts across the grid + time

@@ -1,15 +1,19 @@
 import * as pc from 'playcanvas';
 
 /**
- * Creates the macaroni mesh: a 90° elbow-macaroni arc (torus section).
+ * Creates the macaroni mesh: a 60° elbow-macaroni arc (torus section).
  *
  * The arc center of curvature is at the entity's LOCAL ORIGIN, which is also
  * the rotation pivot. This means the center never moves as the entity rotates —
  * the arc sweeps around it like a hand of a clock.
  *
- * For hex Truchet tiling: entities are placed at hex cell centers. The arc
- * radius is ~90% of the cell inradius so endpoints nearly reach adjacent edge
- * midpoints, giving visual connectivity at Truchet-aligned rotations.
+ * Hex Truchet geometry:
+ *   - Pointy-top hex cells have 6 edge midpoints at 0°,60°,120°,180°,240°,300°
+ *     all at distance spacing/2 (inradius) from the cell center.
+ *   - A 60° arc centered at the cell center with radius ≈ inradius has its two
+ *     endpoints aligned with one pair of adjacent edge midpoints.
+ *   - As the entity rotates, the endpoints sweep through all 6 edge midpoints,
+ *     creating continuous Truchet-style path connections.
  *
  * Coordinate system: X right, Y up, Z toward viewer.
  *
@@ -18,18 +22,18 @@ import * as pc from 'playcanvas';
  * @returns {pc.Mesh}
  */
 export function createMacaroniMesh(device, spacing = 0.22) {
-  // Hex cell inradius = spacing/2 (distance from cell center to edge midpoint).
-  // Arc radius slightly less so the endpoints stay inside their cell.
-  const ringRadius = spacing * 0.45;  // ~90% of inradius; arc centered at entity origin
-  const tubeRadius = ringRadius * 0.22; // tube cross-section thickness
-  const arcDeg = 90;                  // quarter-circle (elbow macaroni)
-  const arcSegs = 18;                 // segments along the arc
-  const tubeSegs = 10;                // segments around the tube cross-section
+  // Inradius = spacing/2. Keep ringRadius slightly under so the tube outer
+  // surface (ringRadius + tubeRadius) lands right at the edge midpoint.
+  const tubeRadius = spacing * 0.06;
+  const ringRadius = spacing * 0.48;  // centerline at 96% of inradius
+  const arcDeg = 60;                  // spans exactly one pair of adjacent hex edge midpoints
+  const arcSegs = 14;
+  const tubeSegs = 10;
 
-  // Symmetric 90° arc: −45° to +45° around the +X axis.
-  // The entity's Z-rotation in applyFrame sweeps this arc around the cell center.
-  const arcStart = -45 * (Math.PI / 180);
-  const arcEnd   =  45 * (Math.PI / 180);
+  // Symmetric 60° arc: −30° to +30° around the +X axis.
+  // At rotation multiples of 60° the endpoints sit on hex edge midpoints.
+  const arcStart = -30 * (Math.PI / 180);
+  const arcEnd   =  30 * (Math.PI / 180);
 
   const positions = [];
   const normals   = [];
