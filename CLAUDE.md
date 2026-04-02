@@ -152,6 +152,10 @@ Macaronis are arranged in a **hex grid**. The layout is configurable:
 - **Firmware:** C++. Builds with Bazel. Uses existing FireFly LED Framework which is written by the user.
 - **General:** Prefer simple, readable code. This is a solo project — clarity over abstraction. Minimal dependencies. Comments explaining *why*, not *what*.
 
+## CRITICAL
+- **Challenge the requirements:** You must decide what is truly necessary to accomplish the goal. Use a first-principles approach to delete unnecessary dependencies and code.
+- **Ownership:** You are fully responsible for the code that you contribute. You must verify that your work is correct and satisfies the requirements.
+
 ## Key Constraints
 - Must render on iPhone (Safari). Test with mobile viewport. Keep draw calls low.
 - Pi Zero 2W will eventually serve this — keep the built web bundle small.

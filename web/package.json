@@ -1,0 +1,16 @@
+{
+  "name": "macaroni-leds-web",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "playcanvas": "^2.3.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
