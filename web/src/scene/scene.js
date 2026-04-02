@@ -61,7 +61,7 @@ export function createScene(app) {
     macaroniEntities = [];
     layout = newLayout;
 
-    const mesh = createMacaroniMesh(app.graphicsDevice);
+    const mesh = createMacaroniMesh(app.graphicsDevice, layout.spacing);
 
     // Pre-compute world positions and center the grid around origin
     const rawPositions = [];

@@ -1,63 +1,62 @@
 import * as pc from 'playcanvas';
 
 /**
- * Creates the macaroni mesh: a curved arc (elbow macaroni cross-section tube)
- * offset from its rotation origin so it tiles as a Truchet tile.
+ * Creates the macaroni mesh: a 90° elbow-macaroni arc (torus section).
  *
- * The arc sweeps ~120° of a torus. The center of the torus ring is offset
- * from the entity origin by `ringOffset`, so when the entity rotates the
- * macaroni orbits around the corner of its grid cell.
+ * The arc center of curvature is at the entity's LOCAL ORIGIN, which is also
+ * the rotation pivot. This means the center never moves as the entity rotates —
+ * the arc sweeps around it like a hand of a clock.
+ *
+ * For hex Truchet tiling: entities are placed at hex cell centers. The arc
+ * radius is ~90% of the cell inradius so endpoints nearly reach adjacent edge
+ * midpoints, giving visual connectivity at Truchet-aligned rotations.
  *
  * Coordinate system: X right, Y up, Z toward viewer.
  *
  * @param {pc.GraphicsDevice} device
+ * @param {number} spacing  hex grid center-to-center distance
  * @returns {pc.Mesh}
  */
-export function createMacaroniMesh(device) {
-  // Torus parameters
-  const ringRadius = 0.07;    // radius of the arc path (how curved the macaroni is)
-  const tubeRadius = 0.018;   // thickness of the tube
-  const arcDeg = 115;         // degrees swept
-  const arcSegs = 18;         // segments along the arc
-  const tubeSegs = 10;        // segments around the tube cross-section
+export function createMacaroniMesh(device, spacing = 0.22) {
+  // Hex cell inradius = spacing/2 (distance from cell center to edge midpoint).
+  // Arc radius slightly less so the endpoints stay inside their cell.
+  const ringRadius = spacing * 0.45;  // ~90% of inradius; arc centered at entity origin
+  const tubeRadius = ringRadius * 0.22; // tube cross-section thickness
+  const arcDeg = 90;                  // quarter-circle (elbow macaroni)
+  const arcSegs = 18;                 // segments along the arc
+  const tubeSegs = 10;                // segments around the tube cross-section
 
-  // The ring center is offset so the arc endpoints sit at grid cell corners
-  // For a hex grid cell of ~spacing=0.22, offset ~= ringRadius puts the arc
-  // corner near the edge midpoint where Truchet tiles connect.
-  const offsetX = ringRadius;
-  const offsetY = -ringRadius;
+  // Symmetric 90° arc: −45° to +45° around the +X axis.
+  // The entity's Z-rotation in applyFrame sweeps this arc around the cell center.
+  const arcStart = -45 * (Math.PI / 180);
+  const arcEnd   =  45 * (Math.PI / 180);
 
   const positions = [];
-  const normals = [];
-  const uvs = [];
-  const indices = [];
-
-  const arcStart = -10 * (Math.PI / 180);   // start angle (radians)
-  const arcEnd = arcStart + arcDeg * (Math.PI / 180);
+  const normals   = [];
+  const uvs       = [];
+  const indices   = [];
 
   for (let i = 0; i <= arcSegs; i++) {
     const u = i / arcSegs;
     const theta = arcStart + u * (arcEnd - arcStart);
-    const cx = offsetX + ringRadius * Math.cos(theta);
-    const cy = offsetY + ringRadius * Math.sin(theta);
-
-    // Tangent along the arc path (for tube normal)
-    const tx = -Math.sin(theta);
-    const ty = Math.cos(theta);
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
 
     for (let j = 0; j <= tubeSegs; j++) {
       const v = j / tubeSegs;
       const phi = v * Math.PI * 2;
+      const cosP = Math.cos(phi);
+      const sinP = Math.sin(phi);
 
-      // In-plane normal (points outward from the arc center)
-      const nx = Math.cos(phi) * Math.cos(theta);
-      const ny = Math.cos(phi) * Math.sin(theta);
-      const nz = Math.sin(phi);
+      // Standard torus parametrisation — arc center at origin.
+      // Tube cross-section is perpendicular to the arc tangent at every point.
+      const px = (ringRadius + tubeRadius * cosP) * cosT;
+      const py = (ringRadius + tubeRadius * cosP) * sinT;
+      const pz = tubeRadius * sinP;
 
-      // Tube surface point
-      const px = cx + tubeRadius * Math.cos(phi) * Math.cos(theta);
-      const py = cy + tubeRadius * Math.cos(phi) * Math.sin(theta);
-      const pz = tubeRadius * Math.sin(phi);
+      const nx = cosP * cosT;
+      const ny = cosP * sinT;
+      const nz = sinP;
 
       positions.push(px, py, pz);
       normals.push(nx, ny, nz);
