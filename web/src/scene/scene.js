@@ -1,44 +1,151 @@
 import * as pc from 'playcanvas';
 import { MacaroniCell } from './macaroni-cell.js';
+import { createTriangleMesh, createArcMesh, TRI_CIRCUM } from './macaroni-mesh.js';
 import { centerGrid } from './hex-layout.js';
 
 const GRID_COLS      = 5;
 const GRID_ROWS      = 3;
-const GRID_SPACING_X = 0.866;  // center-to-center distance, horizontal, sqrt(3)/2
-const GRID_SPACING_Y = 1.5;  // center-to-center distance, vertical
+const GRID_SPACING_X = 0.866;
+const GRID_SPACING_Y = 1.5;
 const GRID_EVEN_X    = 0;
+const ROTATE_SPEED   = 0.4; // rad/s — matches 2D source of truth
+
+function getInitialMode() {
+  const param = new URLSearchParams(window.location.search).get('mode');
+  if (param === '2d' || param === '3d') return param;
+  return '3d';
+}
 
 /**
  * @param {pc.Application} app
  * @returns {{ updateFrame: (frame: object) => void }}
  */
 export function createScene(app) {
-  // ── Camera ───────────────────────────────────────────────────────────────
+  const device = app.graphicsDevice;
+  let mode = getInitialMode();
+
+  // ── Camera ────────────────────────────────────────────────────────────────
   const camera = new pc.Entity('camera');
   camera.addComponent('camera', {
     clearColor: new pc.Color(0.05, 0.05, 0.08),
-    farClip: 50,
-    fov: 90,
+    farClip: 10,
+    fov: 45,
   });
-  camera.setPosition(0, 0, 4);
   app.root.addChild(camera);
 
-  // ── Macaroni cells ───────────────────────────────────────────────────────
+  // ── Lighting ──────────────────────────────────────────────────────────────
+  app.scene.ambientLight = new pc.Color(0.12, 0.12, 0.14);
+
+  const keyLight = new pc.Entity('key-light');
+  keyLight.addComponent('light', {
+    type: 'directional',
+    color: new pc.Color(1.0, 0.95, 0.9),
+    intensity: 1.0,
+    castShadows: false,
+  });
+  keyLight.setEulerAngles(30, -30, 0);
+  app.root.addChild(keyLight);
+
+  const fillLight = new pc.Entity('fill-light');
+  fillLight.addComponent('light', {
+    type: 'directional',
+    color: new pc.Color(0.5, 0.55, 0.7),
+    intensity: 0.4,
+    castShadows: false,
+  });
+  fillLight.setEulerAngles(-20, 40, 0);
+  app.root.addChild(fillLight);
+
+  // ── Grid layout (shared by both modes) ────────────────────────────────────
   const rawPositions = [];
   for (let row = 0; row < GRID_ROWS; row++) {
     for (let col = 0; col < GRID_COLS; col++) {
-      rawPositions.push([col * GRID_SPACING_X + GRID_EVEN_X * (row % 2), -row * GRID_SPACING_Y]);
+      rawPositions.push([
+        col * GRID_SPACING_X + GRID_EVEN_X * (row % 2),
+        -row * GRID_SPACING_Y,
+      ]);
     }
   }
   const positions = centerGrid(rawPositions);
-  const cells = positions.map(([x, y], i) => {
-    return new MacaroniCell(x, y, i % 2 /* flipped or not */);
+
+  // ── 2D mode: MacaroniCell line-drawing ────────────────────────────────────
+  const cells2d = positions.map(([x, y], i) => {
+    return new MacaroniCell(x, y, i % 2 !== 0);
   });
 
+  // ── 3D mode: mesh entities ────────────────────────────────────────────────
+  const triMeshUp   = createTriangleMesh(device, 1);
+  const triMeshDown = createTriangleMesh(device, -1);
+  const arcMeshUp   = createArcMesh(device, 1);
+  const arcMeshDown = createArcMesh(device, -1);
+
+  const triMat = new pc.StandardMaterial();
+  triMat.diffuse.set(0.12, 0.12, 0.15);
+  triMat.specular.set(0.04, 0.04, 0.04);
+  triMat.shininess = 10;
+  triMat.update();
+
+  const arcMat = new pc.StandardMaterial();
+  arcMat.diffuse.set(0.85, 0.7, 0.25);
+  arcMat.specular.set(0.5, 0.45, 0.2);
+  arcMat.shininess = 64;
+  arcMat.update();
+
+  const cellEntities3d = [];
+  const arcEntities = [];
+
+  positions.forEach(([x, y], i) => {
+    const flipped = i % 2 !== 0;
+    const yOffset = flipped ? TRI_CIRCUM / 2 : 0;
+
+    const cell = new pc.Entity(`cell-${i}`);
+    cell.setPosition(x, y + yOffset, 0);
+    app.root.addChild(cell);
+
+    const triEntity = new pc.Entity('tri');
+    triEntity.addComponent('render', {
+      meshInstances: [new pc.MeshInstance(flipped ? triMeshDown : triMeshUp, triMat)],
+    });
+    cell.addChild(triEntity);
+
+    const arcEntity = new pc.Entity('arc');
+    arcEntity.addComponent('render', {
+      meshInstances: [new pc.MeshInstance(flipped ? arcMeshDown : arcMeshUp, arcMat)],
+    });
+    cell.addChild(arcEntity);
+    arcEntities.push(arcEntity);
+    cellEntities3d.push(cell);
+  });
+
+  // ── Mode switching ────────────────────────────────────────────────────────
+  function applyMode() {
+    const is3d = mode === '3d';
+    for (const cell of cellEntities3d) cell.enabled = is3d;
+    camera.setPosition(0, 0, is3d ? 8 : 4);
+    camera.camera.fov = is3d ? 45 : 90;
+  }
+  applyMode();
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === '2') {
+      mode = mode === '2d' ? '3d' : '2d';
+      applyMode();
+    }
+  });
+
+  // ── Update loop ───────────────────────────────────────────────────────────
+  const rotDegPerSec = ROTATE_SPEED * (180 / Math.PI);
+
   app.on('update', (dt) => {
-    for (const cell of cells) {
-      cell.update(dt);
-      cell.draw(app);
+    if (mode === '2d') {
+      for (const cell of cells2d) {
+        cell.update(dt);
+        cell.draw(app);
+      }
+    } else {
+      for (const arc of arcEntities) {
+        arc.rotateLocal(0, 0, rotDegPerSec * dt);
+      }
     }
   });
 
