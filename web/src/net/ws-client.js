@@ -14,8 +14,8 @@ export class WsClient {
     this._url = url;
     this._onFrame = onFrame;
     this._ws = null;
-    this._retryDelay = 1000;
-    this._maxDelay = 16000;
+    this._retryDelay = 100;
+    this._maxDelay = 1600;
     this._stopped = false;
   }
 
