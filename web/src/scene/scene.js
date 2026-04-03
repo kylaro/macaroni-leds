@@ -1,253 +1,136 @@
 import * as pc from 'playcanvas';
-import { createMacaroniMesh } from './macaroni-mesh.js';
-import { hexToWorld, centerGrid } from './hex-layout.js';
-import { DEMO_FRAME } from '../net/demo-frame.js';
 
-// Default layout — overridden by layout in incoming frames
-const DEFAULT_LAYOUT = { type: 'hex', columns: 6, rows: 4, spacing: 0.22 };
-const LEDS_PER_SIDE = 6;
+// Equilateral triangle circumradius (center → vertex)
+const TRI_CIRCUM   = 1.0;
+// Inradius = circumradius / 2  (center → edge midpoint)
+const TRI_INRADIUS = TRI_CIRCUM / 2;
+
+// Macaroni arc geometry:
+//   Center of curvature = the SHARED VERTEX between the two connected edges (V3).
+//   Radius = half the side length = TRI_CIRCUM * sqrt(3) / 2.
+//   Span = 60°  →  bows INWARD (convex face toward interior, concave toward corner).
+//
+// At rest the arc center sits at V3 (angle 330°, at circumradius).
+// The arc runs from 120° to 180° in V3's local frame, landing exactly on
+// M_right and M_bottom — the two edge midpoints adjacent to V3.
+//
+// Rotation by theta around the centroid (origin) moves all arc points rigidly.
+const ARC_RADIUS     = TRI_CIRCUM * Math.sqrt(3) / 2;  // S/2
+const ARC_SPAN       = Math.PI / 3;   // 60°
+const ARC_REST_START = 2 * Math.PI / 3;  // 120° relative to arc center (V3)
+const ARC_REST_END   = Math.PI;          // 180° relative to arc center (V3)
+// Arc center at rest = V3, the shared corner vertex (at circumradius, angle 330°)
+const ARC_CX_REST = TRI_CIRCUM * Math.cos(-Math.PI / 6);  // 330°
+const ARC_CY_REST = TRI_CIRCUM * Math.sin(-Math.PI / 6);
+
+const ARC_THICKNESS = 0.06;
+const ARC_SEGS      = 32;
+
+const PIVOT_RADIUS = 0.04;
+const PIVOT_SEGS   = 12;
+
+const ROTATE_SPEED = 0.4; // rad/s
 
 /**
  * @typedef {Object} SceneState
- * @property {(frame: object) => void} updateFrame - Call with each WebSocket frame
+ * @property {(frame: object) => void} updateFrame
  */
 
 /**
- * Creates the full 3D scene and returns a frame-update callback.
  * @param {pc.Application} app
  * @returns {SceneState}
  */
 export function createScene(app) {
-  // ── Camera ──────────────────────────────────────────────────────────────────
-  const cameraEntity = new pc.Entity('camera');
-  cameraEntity.addComponent('camera', {
-    clearColor: new pc.Color(0.02, 0.02, 0.04),
+  // ── Camera ───────────────────────────────────────────────────────────────
+  const camera = new pc.Entity('camera');
+  camera.addComponent('camera', {
+    clearColor: new pc.Color(0.05, 0.05, 0.08),
     farClip: 50,
     fov: 45,
   });
-  cameraEntity.setPosition(0, 0, 4.5);
-  app.root.addChild(cameraEntity);
+  camera.setPosition(0, 0, 4);
+  app.root.addChild(camera);
 
-  // ── Ambient light (very dim — LEDs provide most light) ────────────────────
-  app.scene.ambientLight = new pc.Color(0.04, 0.04, 0.06);
-
-  // ── Single fill light from slightly above ────────────────────────────────
-  const fillLight = new pc.Entity('fill-light');
-  fillLight.addComponent('light', {
-    type: 'directional',
-    color: new pc.Color(0.3, 0.3, 0.4),
-    intensity: 0.6,
-    castShadows: false,
-  });
-  fillLight.setEulerAngles(30, 0, 0);
-  app.root.addChild(fillLight);
-
-  // ── Shared materials ───────────────────────────────────────────────────────
-  // Macaroni body: dark matte plastic
-  const bodyMat = new pc.StandardMaterial();
-  bodyMat.diffuse = new pc.Color(0.08, 0.07, 0.09);
-  bodyMat.shininess = 60;
-  bodyMat.metalness = 0.1;
-  bodyMat.useMetalness = true;
-  bodyMat.update();
-
-  // Paused variant: subtle blue-white tint so the user can tell it's frozen
-  const pausedMat = new pc.StandardMaterial();
-  pausedMat.diffuse = new pc.Color(0.12, 0.14, 0.22);
-  pausedMat.shininess = 60;
-  pausedMat.metalness = 0.1;
-  pausedMat.useMetalness = true;
-  pausedMat.update();
-
-  // ── Paused state ───────────────────────────────────────────────────────────
-  const pausedIds = new Set(); // set of macaroni ids that are frozen
-
-  // ── GPU picker (instantiated once, resized if canvas changes) ─────────────
-  const picker = new pc.Picker(app, app.graphicsDevice.width, app.graphicsDevice.height);
-  app.graphicsDevice.on('resizecanvas', () => {
-    picker.resize(app.graphicsDevice.width, app.graphicsDevice.height);
+  // ── Triangle vertices (pointy-top: 90°, 210°, 330°) ──────────────────────
+  const triVerts = [90, 210, 330].map(deg => {
+    const a = deg * (Math.PI / 180);
+    return new pc.Vec3(TRI_CIRCUM * Math.cos(a), TRI_CIRCUM * Math.sin(a), 0);
   });
 
-  // ── Build initial grid from default layout ────────────────────────────────
-  let macaroniEntities = [];
-  let layout = DEFAULT_LAYOUT;
+  let theta = 0;
 
-  function buildGrid(newLayout) {
-    // Tear down old entities
-    for (const e of macaroniEntities) e.destroy();
-    macaroniEntities = [];
-    layout = newLayout;
+  const triColor   = new pc.Color(0.85, 0.65, 0.1);
+  const pivotColor = new pc.Color(1.0,  0.15, 0.15);
+  const arcColor   = new pc.Color(0.25, 0.75, 0.3);
 
-    const mesh = createMacaroniMesh(app.graphicsDevice, layout.spacing);
-
-    // Pre-compute world positions and center the grid around origin
-    const rawPositions = [];
-    for (let row = 0; row < layout.rows; row++) {
-      for (let col = 0; col < layout.columns; col++) {
-        rawPositions.push(hexToWorld(col, row, layout.spacing));
-      }
-    }
-    const centeredPositions = centerGrid(rawPositions);
-
-    for (let row = 0; row < layout.rows; row++) {
-      for (let col = 0; col < layout.columns; col++) {
-        const id = row * layout.columns + col;
-        const [wx, wy] = centeredPositions[id];
-
-        const entity = new pc.Entity(`macaroni-${id}`);
-        entity.addComponent('render', {
-          meshInstances: [new pc.MeshInstance(mesh, bodyMat)],
-          castShadows: false,
-          receiveShadows: false,
-        });
-        entity.setPosition(wx, wy, 0);
-
-        // LED point lights — one per LED strip side (averaged color)
-        const ledLights = createLedLights(entity, app);
-
-        entity._macaroniId = id;
-        entity._ledLights = ledLights;
-
-        app.root.addChild(entity);
-        macaroniEntities.push(entity);
-      }
-    }
-  }
-
-  buildGrid(DEFAULT_LAYOUT);
-
-  // ── Click / tap to pause/resume individual macaronis ──────────────────────
-  function togglePause(entity) {
-    const id = entity._macaroniId;
-    if (pausedIds.has(id)) {
-      pausedIds.delete(id);
-      entity.render.meshInstances[0].material = bodyMat;
-    } else {
-      pausedIds.add(id);
-      entity.render.meshInstances[0].material = pausedMat;
-    }
-  }
-
-  function pickAtScreen(x, y) {
-    picker.prepare(cameraEntity.camera, app.scene);
-    const hits = picker.getSelection(x, y);
-    if (hits.length === 0) return;
-    const mi = hits[0];
-    for (const e of macaroniEntities) {
-      if (e.render.meshInstances[0] === mi) {
-        togglePause(e);
-        return;
-      }
-    }
-  }
-
-  app.mouse.on(pc.EVENT_MOUSEDOWN, (ev) => {
-    if (ev.button === pc.MOUSEBUTTON_LEFT) pickAtScreen(ev.x, ev.y);
-  });
-
-  app.touch.on(pc.EVENT_TOUCHSTART, (ev) => {
-    if (ev.touches.length === 1) pickAtScreen(ev.touches[0].x, ev.touches[0].y);
-  });
-
-  // Kick off demo animation while waiting for WebSocket
-  let demoRunning = true;
-  let demoT = 0;
   app.on('update', (dt) => {
-    if (!demoRunning) return;
-    demoT += dt;
-    const frame = DEMO_FRAME(demoT, layout);
-    applyFrame(frame);
+    theta += ROTATE_SPEED * dt;
+
+    // Triangle edges
+    for (let i = 0; i < 3; i++) {
+      app.drawLine(triVerts[i], triVerts[(i + 1) % 3], triColor);
+    }
+
+    // Macaroni arc: 60° convex arc rotating around centroid
+    drawMacaroniArc(app, theta, arcColor);
+
+    // Pivot at centroid
+    drawCircle(app, 0, 0, PIVOT_RADIUS, pivotColor, PIVOT_SEGS);
   });
-
-  // ── Frame application ──────────────────────────────────────────────────────
-  function applyFrame(frame) {
-    // Rebuild grid if layout changed
-    if (frame.layout) {
-      const l = frame.layout;
-      if (
-        l.columns !== layout.columns ||
-        l.rows !== layout.rows ||
-        l.spacing !== layout.spacing
-      ) {
-        buildGrid(l);
-      }
-    }
-
-    if (!frame.macaronis) return;
-
-    for (const m of frame.macaronis) {
-      const entity = macaroniEntities[m.id];
-      if (!entity) continue;
-      if (pausedIds.has(m.id)) continue; // frozen — keep last angle + LEDs
-
-      entity.setEulerAngles(0, 0, (m.angle * 180) / Math.PI);
-      updateLedLights(entity._ledLights, m);
-    }
-  }
 
   return {
-    updateFrame(frame) {
-      demoRunning = false;
-      applyFrame(frame);
-    },
+    updateFrame(_frame) {},
   };
 }
 
-// ── LED lights ─────────────────────────────────────────────────────────────
-// Each macaroni has 3 small omni lights (one per strip side) tinted by the
-// average color of that strip. This gives a convincing LED glow cheaply.
-
-function createLedLights(parentEntity, app) {
-  const offsets = [
-    // concave inner arc — offset slightly inward
-    new pc.Vec3(0, 0.05, 0.05),
-    // convex outer arc — offset outward
-    new pc.Vec3(0, -0.05, 0.05),
-    // top
-    new pc.Vec3(0, 0, 0.08),
-  ];
-  const names = ['concave', 'convex', 'top'];
-  const lights = [];
-
-  for (let i = 0; i < 3; i++) {
-    const e = new pc.Entity(`led-${names[i]}`);
-    e.addComponent('light', {
-      type: 'omni',
-      color: new pc.Color(1, 1, 1),
-      intensity: 0,
-      range: 0.45,
-      castShadows: false,
-      // Physically based falloff looks nicer
-      falloffMode: pc.LIGHTFALLOFF_LINEAR,
-    });
-    e.setLocalPosition(offsets[i]);
-    parentEntity.addChild(e);
-    lights.push(e.light);
-  }
-  return lights;
-}
+// ── Drawing helpers ──────────────────────────────────────────────────────────
 
 /**
- * @param {pc.LightComponent[]} lights  [concave, convex, top]
- * @param {object} m  macaroni frame data
+ * Draws the macaroni arc rotated by `theta` around the centroid (origin).
+ *
+ * At rest (theta=0) the arc is centered at the opposite edge midpoint (M_left)
+ * and bows outward toward V3, connecting M_bottom and M_right.
+ * Rotation by theta rigidly moves all arc points around the centroid.
  */
-function updateLedLights(lights, m) {
-  const strips = [m.leds_concave, m.leds_convex, m.leds_top];
-  for (let i = 0; i < 3; i++) {
-    const strip = strips[i];
-    if (!strip || strip.length === 0) continue;
+function drawMacaroniArc(app, theta, color) {
+  const cosT = Math.cos(theta);
+  const sinT = Math.sin(theta);
 
-    // Average the strip color
-    let r = 0, g = 0, b = 0;
-    for (const [lr, lg, lb] of strip) {
-      r += lr; g += lg; b += lb;
-    }
-    const n = strip.length;
-    r /= n * 255; g /= n * 255; b /= n * 255;
+  const inner = [];
+  const outer = [];
 
-    const brightness = (r + g + b) / 3;
-    lights[i].color.set(r, g, b);
-    // Scale intensity by brightness so dark = off
-    lights[i].intensity = brightness * 2.5;
+  for (let i = 0; i <= ARC_SEGS; i++) {
+    // Angle within the arc-center's local frame (rest position)
+    const a = ARC_REST_START + (i / ARC_SEGS) * ARC_SPAN;
+
+    // Sample inner and outer band in rest position
+    const pix = ARC_CX_REST + (ARC_RADIUS - ARC_THICKNESS) * Math.cos(a);
+    const piy = ARC_CY_REST + (ARC_RADIUS - ARC_THICKNESS) * Math.sin(a);
+    const pox = ARC_CX_REST + (ARC_RADIUS + ARC_THICKNESS) * Math.cos(a);
+    const poy = ARC_CY_REST + (ARC_RADIUS + ARC_THICKNESS) * Math.sin(a);
+
+    // Rotate around centroid (origin) by theta
+    inner.push(new pc.Vec3(pix * cosT - piy * sinT, pix * sinT + piy * cosT, 0));
+    outer.push(new pc.Vec3(pox * cosT - poy * sinT, pox * sinT + poy * cosT, 0));
+  }
+
+  for (let i = 0; i < ARC_SEGS; i++) {
+    app.drawLine(inner[i], inner[i + 1], color);
+    app.drawLine(outer[i], outer[i + 1], color);
+  }
+  // End caps
+  app.drawLine(inner[0],       outer[0],       color);
+  app.drawLine(inner[ARC_SEGS], outer[ARC_SEGS], color);
+}
+
+function drawCircle(app, cx, cy, r, color, segs) {
+  for (let i = 0; i < segs; i++) {
+    const a0 = (Math.PI * 2 * i) / segs;
+    const a1 = (Math.PI * 2 * (i + 1)) / segs;
+    app.drawLine(
+      new pc.Vec3(cx + r * Math.cos(a0), cy + r * Math.sin(a0), 0),
+      new pc.Vec3(cx + r * Math.cos(a1), cy + r * Math.sin(a1), 0),
+      color
+    );
   }
 }
