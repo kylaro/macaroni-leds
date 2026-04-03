@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { CameraFrame } from 'playcanvas';
 import { MacaroniCell } from './macaroni-cell.js';
 import {
   createTriangleMesh, createArcMesh,
@@ -38,6 +39,13 @@ export function createScene(app) {
     fov: CAM_FOV,
   });
   app.root.addChild(camera);
+
+  // ── Bloom (HDR post-processing) ───────────────────────────────────────────
+  const cameraFrame = new CameraFrame(app, camera.camera);
+  // TODO - I don't think this bloom does anything.
+  // cameraFrame.bloom.intensity = 0.04;
+  // cameraFrame.bloom.blurLevel = 100;
+  cameraFrame.enabled = true;
 
   // ── Lighting ──────────────────────────────────────────────────────────────
   app.scene.ambientLight = new pc.Color(0.12, 0.12, 0.14);
@@ -93,8 +101,17 @@ export function createScene(app) {
 
   const arcMat = new pc.StandardMaterial();
   arcMat.diffuse.set(0.85, 0.85, 0.85);
-  arcMat.specular.set(0.5, 0.5, 0.5);
+  arcMat.specular.set(0.2, 0.2, 0.2);
   arcMat.shininess = 64;
+  arcMat.emissive.set(0.3, 0.4, 0.3);  // subtle green-tinted glow matching the LEDs
+  arcMat.emissiveIntensity = 0;
+  // TODO - The arcs could be multiple materials
+  // It would actually be ideal for the arcs to be made of multiple segments.
+  // Each segment will be one material with emissive Intensity and color, separate from the others.
+  // This is to simulate the diffused LED strip that would be inside of the arc.
+  // If there is a way to do this effect of multiple colors being emissive, that'd be great.
+  // Let's consider this later.
+  // For now, I think the effect is achieved by just using omni lights, because they reflect back on the arc.
   arcMat.update();
 
   const cellEntities3d = [];
@@ -133,27 +150,30 @@ export function createScene(app) {
       const sinT = Math.sin(t);
 
       const led = new pc.Entity(`led-${i}-${li}`);
+      // TODO - I want to try using spot lights, but face them toward the arch instead of away.
       led.addComponent('light', {
-        type: 'spot',
+        type: 'omni',
         color: new pc.Color(0, 1, 0),
-        intensity: .6,
-        range: 2,
+        intensity: 1,
+        range: 0.2,
         innerConeAngle: 50,
         outerConeAngle: 60,  // 120° total cone
         castShadows: false,
       });
+      // Add to hierarchy first so world transforms are correct for lookAt
+      arcEntity.addChild(led);
       led.setLocalPosition(
-        ARC_CX_REST + innerR * cosT,
+        ARC_CX_REST + innerR * cosT + 0.1,
         yS * (ARC_CY_REST + innerR * sinT),
-        ledZ,
+        ledZ+0.03,
       );
-      // Point inward toward the center of curvature
+      // Point inward toward the center of curvature (world-space coords)
       led.lookAt(new pc.Vec3(
-        x + ARC_CX_REST,
+        x + ARC_CX_REST + 0,
         y + yOffset + yS * ARC_CY_REST,
         ledZ,
       ));
-      arcEntity.addChild(led);
+      led.rotateLocal(90, 0, 0);
     }
   });
 
