@@ -35,7 +35,11 @@ const RECT_CORNERS = [
 ];
 const RECT_VERTS_PER_RING = RECT_CORNERS.length;
 
-export { TRI_CIRCUM };
+/** Number of LEDs on the inner (concave) face of each arc. Change to reconfigure. */
+export const ARC_LED_COUNT = 6;
+
+// Arc geometry constants exported for LED placement in scene.js
+export { TRI_CIRCUM, ARC_CX_REST, ARC_CY_REST, ARC_RADIUS, ARC_HALF_W, ARC_REST_START, ARC_SPAN, ARC_Z0, ARC_Z1 };
 
 /**
  * Flat equilateral-triangle mesh (double-sided).

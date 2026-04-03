@@ -1,6 +1,10 @@
 import * as pc from 'playcanvas';
 import { MacaroniCell } from './macaroni-cell.js';
-import { createTriangleMesh, createArcMesh, TRI_CIRCUM } from './macaroni-mesh.js';
+import {
+  createTriangleMesh, createArcMesh,
+  TRI_CIRCUM, ARC_CX_REST, ARC_CY_REST, ARC_RADIUS, ARC_HALF_W,
+  ARC_REST_START, ARC_SPAN, ARC_Z0, ARC_Z1, ARC_LED_COUNT,
+} from './macaroni-mesh.js';
 import { centerGrid } from './hex-layout.js';
 
 const GRID_COLS      = 5;
@@ -42,7 +46,7 @@ export function createScene(app) {
   keyLight.addComponent('light', {
     type: 'directional',
     color: new pc.Color(1.0, 0.95, 0.9),
-    intensity: 1.0,
+    intensity: 0.5,
     castShadows: false,
   });
   keyLight.setEulerAngles(30, -30, 0);
@@ -82,14 +86,14 @@ export function createScene(app) {
   const arcMeshDown = createArcMesh(device, -1);
 
   const triMat = new pc.StandardMaterial();
-  triMat.diffuse.set(0.12, 0.12, 0.15);
-  triMat.specular.set(0.04, 0.04, 0.04);
-  triMat.shininess = 10;
+  triMat.diffuse.set(0.5, 0.5, 0.55);
+  triMat.specular.set(0.94, 0.94, 0.94);
+  triMat.shininess = 1000;
   triMat.update();
 
   const arcMat = new pc.StandardMaterial();
-  arcMat.diffuse.set(0.85, 0.7, 0.25);
-  arcMat.specular.set(0.5, 0.45, 0.2);
+  arcMat.diffuse.set(0.85, 0.85, 0.85);
+  arcMat.specular.set(0.5, 0.5, 0.5);
   arcMat.shininess = 64;
   arcMat.update();
 
@@ -117,10 +121,44 @@ export function createScene(app) {
     cell.addChild(arcEntity);
     arcEntities.push(arcEntity);
     cellEntities3d.push(cell);
+
+    // ── LEDs on inner (concave) face ────────────────────────────────────
+    const yS    = flipped ? -1 : 1;
+    const innerR = ARC_RADIUS - ARC_HALF_W;
+    const ledZ   = (ARC_Z0 + ARC_Z1) / 2;
+
+    for (let li = 0; li < ARC_LED_COUNT; li++) {
+      const t    = ARC_REST_START + (li + 0.5) / ARC_LED_COUNT * ARC_SPAN;
+      const cosT = Math.cos(t);
+      const sinT = Math.sin(t);
+
+      const led = new pc.Entity(`led-${i}-${li}`);
+      led.addComponent('light', {
+        type: 'spot',
+        color: new pc.Color(0, 1, 0),
+        intensity: .6,
+        range: 2,
+        innerConeAngle: 50,
+        outerConeAngle: 60,  // 120° total cone
+        castShadows: false,
+      });
+      led.setLocalPosition(
+        ARC_CX_REST + innerR * cosT,
+        yS * (ARC_CY_REST + innerR * sinT),
+        ledZ,
+      );
+      // Point inward toward the center of curvature
+      led.lookAt(new pc.Vec3(
+        x + ARC_CX_REST,
+        y + yOffset + yS * ARC_CY_REST,
+        ledZ,
+      ));
+      arcEntity.addChild(led);
+    }
   });
 
   // ── Camera orbit (click-drag, clamped ±45°) ────────────────────────────
-  const MAX_ANGLE = 60;
+  const MAX_ANGLE = 120;
   const DRAG_SENSITIVITY = 0.3; // degrees per pixel
   let orbitYaw = 0;    // horizontal angle (degrees)
   let orbitPitch = 0;  // vertical angle (degrees)
