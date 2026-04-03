@@ -12,23 +12,26 @@ const ARC_THICKNESS  = 0.06;
 
 // 3D tuning
 const ARC_HALF_W = ARC_THICKNESS;       // half-width (in-plane)
-const ARC_HALF_H = ARC_THICKNESS * 0.5; // half-height (out-of-plane)
+const ARC_HALF_H = ARC_THICKNESS;       // half-height (out-of-plane)
 const ARC_SEGMENTS = 24;
 // Rectangular cross-section: 4 corners, duplicated per face for flat normals
+// z=0 is flush with the triangle face; arc protrudes forward to z=2*ARC_HALF_H
+const ARC_Z0 = 0;
+const ARC_Z1 = 2 * ARC_HALF_H;
 const RECT_CORNERS = [
   // [offset along radial, offset along Z, normal radial, normal Z]
   // bottom face (2 verts)
-  [-ARC_HALF_W, -ARC_HALF_H, 0, -1],
-  [ ARC_HALF_W, -ARC_HALF_H, 0, -1],
+  [-ARC_HALF_W, ARC_Z0, 0, -1],
+  [ ARC_HALF_W, ARC_Z0, 0, -1],
   // right face
-  [ ARC_HALF_W, -ARC_HALF_H, 1,  0],
-  [ ARC_HALF_W,  ARC_HALF_H, 1,  0],
+  [ ARC_HALF_W, ARC_Z0, 1,  0],
+  [ ARC_HALF_W, ARC_Z1, 1,  0],
   // top face
-  [ ARC_HALF_W,  ARC_HALF_H, 0,  1],
-  [-ARC_HALF_W,  ARC_HALF_H, 0,  1],
+  [ ARC_HALF_W, ARC_Z1, 0,  1],
+  [-ARC_HALF_W, ARC_Z1, 0,  1],
   // left face
-  [-ARC_HALF_W,  ARC_HALF_H, -1, 0],
-  [-ARC_HALF_W, -ARC_HALF_H, -1, 0],
+  [-ARC_HALF_W, ARC_Z1, -1, 0],
+  [-ARC_HALF_W, ARC_Z0, -1, 0],
 ];
 const RECT_VERTS_PER_RING = RECT_CORNERS.length;
 
@@ -120,10 +123,10 @@ export function createArcMesh(device, ySign) {
   // ── End caps (flat quads) ────────────────────────────────────────────
   // 4 unique corners of the rectangle cross-section
   const RECT_UNIQUE = [
-    [-ARC_HALF_W, -ARC_HALF_H],
-    [ ARC_HALF_W, -ARC_HALF_H],
-    [ ARC_HALF_W,  ARC_HALF_H],
-    [-ARC_HALF_W,  ARC_HALF_H],
+    [-ARC_HALF_W, ARC_Z0],
+    [ ARC_HALF_W, ARC_Z0],
+    [ ARC_HALF_W, ARC_Z1],
+    [-ARC_HALF_W, ARC_Z1],
   ];
   for (const capI of [0, ARC_SEGMENTS]) {
     const theta = ARC_REST_START + (capI / ARC_SEGMENTS) * ARC_SPAN;

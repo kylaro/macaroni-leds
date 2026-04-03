@@ -10,6 +10,8 @@ const GRID_SPACING_Y = 1.5;
 const GRID_EVEN_X    = 0;
 const ROTATE_SPEED   = 0.4; // rad/s — matches 2D source of truth
 
+const CAM_FOV = 90
+
 function getInitialMode() {
   const param = new URLSearchParams(window.location.search).get('mode');
   if (param === '2d' || param === '3d') return param;
@@ -29,7 +31,7 @@ export function createScene(app) {
   camera.addComponent('camera', {
     clearColor: new pc.Color(0.05, 0.05, 0.08),
     farClip: 10,
-    fov: 45,
+    fov: CAM_FOV,
   });
   app.root.addChild(camera);
 
@@ -117,12 +119,56 @@ export function createScene(app) {
     cellEntities3d.push(cell);
   });
 
+  // ── Camera orbit (click-drag, clamped ±45°) ────────────────────────────
+  const MAX_ANGLE = 60;
+  const DRAG_SENSITIVITY = 0.3; // degrees per pixel
+  let orbitYaw = 0;    // horizontal angle (degrees)
+  let orbitPitch = 0;  // vertical angle (degrees)
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+
+  function updateCameraOrbit() {
+    const is3d = mode === '3d';
+    const dist = is3d ? 8 : 4;
+    const yawRad = orbitYaw * Math.PI / 180;
+    const pitchRad = orbitPitch * Math.PI / 180;
+    camera.setPosition(
+      dist * Math.sin(yawRad) * Math.cos(pitchRad),
+      dist * Math.sin(pitchRad),
+      dist * Math.cos(yawRad) * Math.cos(pitchRad),
+    );
+    camera.lookAt(0, 0, 0);
+  }
+
+  const canvas = app.graphicsDevice.canvas;
+  canvas.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    orbitYaw = Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, orbitYaw - dx * DRAG_SENSITIVITY));
+    orbitPitch = Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, orbitPitch + dy * DRAG_SENSITIVITY));
+    updateCameraOrbit();
+  });
+  canvas.addEventListener('pointerup', (e) => {
+    dragging = false;
+    canvas.releasePointerCapture(e.pointerId);
+  });
+
   // ── Mode switching ────────────────────────────────────────────────────────
   function applyMode() {
     const is3d = mode === '3d';
     for (const cell of cellEntities3d) cell.enabled = is3d;
-    camera.setPosition(0, 0, is3d ? 8 : 4);
-    camera.camera.fov = is3d ? 45 : 90;
+    camera.camera.fov = is3d ? 53 : 90;
+    updateCameraOrbit();
   }
   applyMode();
 
