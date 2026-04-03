@@ -11,9 +11,26 @@ const ARC_CY_REST    = TRI_CIRCUM * Math.sin(-Math.PI / 6);
 const ARC_THICKNESS  = 0.06;
 
 // 3D tuning
-const ARC_TUBE_RADIUS = ARC_THICKNESS;
-const ARC_SEGMENTS    = 24;
-const TUBE_SEGMENTS   = 8;
+const ARC_HALF_W = ARC_THICKNESS;       // half-width (in-plane)
+const ARC_HALF_H = ARC_THICKNESS * 0.5; // half-height (out-of-plane)
+const ARC_SEGMENTS = 24;
+// Rectangular cross-section: 4 corners, duplicated per face for flat normals
+const RECT_CORNERS = [
+  // [offset along radial, offset along Z, normal radial, normal Z]
+  // bottom face (2 verts)
+  [-ARC_HALF_W, -ARC_HALF_H, 0, -1],
+  [ ARC_HALF_W, -ARC_HALF_H, 0, -1],
+  // right face
+  [ ARC_HALF_W, -ARC_HALF_H, 1,  0],
+  [ ARC_HALF_W,  ARC_HALF_H, 1,  0],
+  // top face
+  [ ARC_HALF_W,  ARC_HALF_H, 0,  1],
+  [-ARC_HALF_W,  ARC_HALF_H, 0,  1],
+  // left face
+  [-ARC_HALF_W,  ARC_HALF_H, -1, 0],
+  [-ARC_HALF_W, -ARC_HALF_H, -1, 0],
+];
+const RECT_VERTS_PER_RING = RECT_CORNERS.length;
 
 export { TRI_CIRCUM };
 
@@ -70,74 +87,63 @@ export function createArcMesh(device, ySign) {
   const cx = ARC_CX_REST;
   const cy = ARC_CY_REST;
   const R  = ARC_RADIUS;
-  const r  = ARC_TUBE_RADIUS;
 
-  // ── Torus body ──────────────────────────────────────────────────────────
+  // ── Swept rectangle body ─────────────────────────────────────────────
   for (let i = 0; i <= ARC_SEGMENTS; i++) {
     const theta = ARC_REST_START + (i / ARC_SEGMENTS) * ARC_SPAN;
     const cosT  = Math.cos(theta);
     const sinT  = Math.sin(theta);
 
-    for (let j = 0; j <= TUBE_SEGMENTS; j++) {
-      const phi  = (j / TUBE_SEGMENTS) * Math.PI * 2;
-      const cosP = Math.cos(phi);
-      const sinP = Math.sin(phi);
-
+    for (let j = 0; j < RECT_VERTS_PER_RING; j++) {
+      const [dr, dz, nr, nz] = RECT_CORNERS[j];
       positions.push(
-        cx + (R + r * cosP) * cosT,
-        cy + (R + r * cosP) * sinT,
-        r * sinP,
+        cx + (R + dr) * cosT,
+        cy + (R + dr) * sinT,
+        dz,
       );
-      normals.push(cosP * cosT, cosP * sinT, sinP);
+      normals.push(nr * cosT, nr * sinT, nz);
     }
   }
 
-  const cols = TUBE_SEGMENTS + 1;
+  const cols = RECT_VERTS_PER_RING;
   for (let i = 0; i < ARC_SEGMENTS; i++) {
-    for (let j = 0; j < TUBE_SEGMENTS; j++) {
+    // Each pair of adjacent corners forms a quad face
+    for (let j = 0; j < RECT_VERTS_PER_RING; j += 2) {
       const a = i * cols + j;
-      const b = a + 1;
-      const c = a + cols;
-      const d = c + 1;
+      const b = i * cols + j + 1;
+      const c = (i + 1) * cols + j;
+      const d = (i + 1) * cols + j + 1;
       indices.push(a, c, b, b, c, d);
     }
   }
 
-  // ── End caps (flat discs) ───────────────────────────────────────────────
+  // ── End caps (flat quads) ────────────────────────────────────────────
+  // 4 unique corners of the rectangle cross-section
+  const RECT_UNIQUE = [
+    [-ARC_HALF_W, -ARC_HALF_H],
+    [ ARC_HALF_W, -ARC_HALF_H],
+    [ ARC_HALF_W,  ARC_HALF_H],
+    [-ARC_HALF_W,  ARC_HALF_H],
+  ];
   for (const capI of [0, ARC_SEGMENTS]) {
     const theta = ARC_REST_START + (capI / ARC_SEGMENTS) * ARC_SPAN;
     const cosT  = Math.cos(theta);
     const sinT  = Math.sin(theta);
 
-    // Normal = arc tangent direction, sign depends on which end
-    const s  = capI === 0 ? 1 : -1;   // start cap faces backward along arc
-    const nx = s * sinT;               // tangent is (-sinT, cosT, 0)
+    const s  = capI === 0 ? 1 : -1;
+    const nx = s * sinT;
     const ny = s * -cosT;
-    const nz = 0;
 
-    const centerIdx = positions.length / 3;
-    positions.push(cx + R * cosT, cy + R * sinT, 0);
-    normals.push(nx, ny, nz);
-
-    for (let j = 0; j <= TUBE_SEGMENTS; j++) {
-      const phi  = (j / TUBE_SEGMENTS) * Math.PI * 2;
-      const cosP = Math.cos(phi);
-      const sinP = Math.sin(phi);
-      positions.push(
-        cx + (R + r * cosP) * cosT,
-        cy + (R + r * cosP) * sinT,
-        r * sinP,
-      );
-      normals.push(nx, ny, nz);
+    const base = positions.length / 3;
+    for (const [dr, dz] of RECT_UNIQUE) {
+      positions.push(cx + (R + dr) * cosT, cy + (R + dr) * sinT, dz);
+      normals.push(nx, ny, 0);
     }
 
-    const ringStart = centerIdx + 1;
-    for (let j = 0; j < TUBE_SEGMENTS; j++) {
-      if (capI === 0) {
-        indices.push(centerIdx, ringStart + j + 1, ringStart + j);
-      } else {
-        indices.push(centerIdx, ringStart + j, ringStart + j + 1);
-      }
+    if (capI === 0) {
+      indices.push(base, base + 2, base + 1, base, base + 3, base + 2);
+    } else {
+      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
     }
   }
 
