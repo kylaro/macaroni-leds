@@ -152,13 +152,18 @@ export function createMacaroni({ id, app, x, y, flipped, triMesh, arcMesh, triMa
     led.addComponent('light', {
       type: 'omni',
       color: new pc.Color(0, 0, 0),
-      intensity: 0,
-      range: 0.3,
-      castShadows: false,
+      intensity: 0, // Set when processing effects.
+      range: 0,     // Set when processing effects.
+      castShadows: true,
+      shadowResolution: 64,
+      shadowType : pc.SHADOW_PCF5_32F,
+      shadowBias : 1,
+      shadowDistance : 0.1,
+      normalOffsetBias : 0.1,
     });
     arcEntity.addChild(led);
     led.setLocalPosition(
-      ARC_CX_REST + innerR * cosT,
+      ARC_CX_REST + innerR * cosT + 0.05,
       yS * (ARC_CY_REST + innerR * sinT),
       ledZ,
     );

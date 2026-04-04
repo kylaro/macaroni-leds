@@ -94,14 +94,14 @@ export function createScene(app) {
   const arcMeshDown = createArcMesh(device, -1);
 
   const triMat = new pc.StandardMaterial();
-  triMat.diffuse.set(0.5, 0.5, 0.55);
-  triMat.specular.set(0.94, 0.94, 0.94);
-  triMat.shininess = 1000;
+  triMat.diffuse.set(.6, .6, .6);
+  triMat.specular.set(0, 0, 0);
+  triMat.shininess = 0;
   triMat.update();
 
   const arcMat = new pc.StandardMaterial();
-  arcMat.diffuse.set(0.85, 0.85, 0.85);
-  arcMat.specular.set(0.2, 0.2, 0.2);
+  arcMat.diffuse.set(1, 1, 1);
+  arcMat.specular.set(0, 0, 0);
   arcMat.shininess = 64;
   arcMat.emissive.set(0, 0, 0);  // Unused for now.
   arcMat.emissiveIntensity = 0;
