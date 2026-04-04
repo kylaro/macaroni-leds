@@ -12,9 +12,20 @@
       height: 100%;
       display: block;
     }
+    #fps-counter {
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      color: #0f0;
+      font: 14px/1 monospace;
+      z-index: 10;
+      pointer-events: none;
+      display: block;
+    }
   </style>
 </head>
 <body>
+  <div id="fps-counter"></div>
   <canvas id="application-canvas"></canvas>
   <script type="module" src="/src/main.js"></script>
 </body>

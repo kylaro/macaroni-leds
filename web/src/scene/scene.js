@@ -7,6 +7,8 @@ import {
 } from './macaroni-mesh.js';
 import { centerGrid } from './hex-layout.js';
 import { createMacaroni } from './macaroni.js';
+import { FpsCounter } from '../ui/fps-counter.js';
+import { ModeToggle } from '../ui/mode-toggle.js';
 
 const GRID_COLS      = 5;
 const GRID_ROWS      = 3;
@@ -14,6 +16,10 @@ const GRID_SPACING_X = 0.866;
 const GRID_SPACING_Y = 1.5;
 const GRID_EVEN_X    = 0;
 const ROTATE_SPEED   = 0.4; // rad/s — matches 2D source of truth
+
+// Material colors — change these to reskin the macaronis
+const TRI_COLOR = { r: 0.6, g: 0.6, b: 0.6 };
+const ARC_COLOR = { r: 1, g: 1, b: 1 };
 
 const CAM_FOV = 90
 
@@ -29,7 +35,6 @@ function getInitialMode() {
  */
 export function createScene(app) {
   const device = app.graphicsDevice;
-  let mode = getInitialMode();
 
   // ── Camera ────────────────────────────────────────────────────────────────
   const camera = new pc.Entity('camera');
@@ -94,13 +99,13 @@ export function createScene(app) {
   const arcMeshDown = createArcMesh(device, -1);
 
   const triMat = new pc.StandardMaterial();
-  triMat.diffuse.set(.6, .6, .6);
+  triMat.diffuse.set(TRI_COLOR.r, TRI_COLOR.g, TRI_COLOR.b);
   triMat.specular.set(0, 0, 0);
   triMat.shininess = 0;
   triMat.update();
 
   const arcMat = new pc.StandardMaterial();
-  arcMat.diffuse.set(1, 1, 1);
+  arcMat.diffuse.set(ARC_COLOR.r, ARC_COLOR.g, ARC_COLOR.b);
   arcMat.specular.set(0, 0, 0);
   arcMat.shininess = 64;
   arcMat.emissive.set(0, 0, 0);  // Unused for now.
@@ -143,9 +148,10 @@ export function createScene(app) {
   let lastX = 0;
   let lastY = 0;
 
+  let currentMode = getInitialMode();
+
   function updateCameraOrbit() {
-    const is3d = mode === '3d';
-    const dist = is3d ? 8 : 4;
+    const dist = currentMode === '3d' ? 8 : 4;
     const yawRad = orbitYaw * Math.PI / 180;
     const pitchRad = orbitPitch * Math.PI / 180;
     camera.setPosition(
@@ -179,26 +185,26 @@ export function createScene(app) {
   });
 
   // ── Mode switching ────────────────────────────────────────────────────────
-  function applyMode() {
-    const is3d = mode === '3d';
+  function applyMode(m) {
+    currentMode = m;
+    const is3d = m === '3d';
     for (const mac of macaronis) mac.cell.enabled = is3d;
     camera.camera.fov = is3d ? 53 : 90;
     updateCameraOrbit();
   }
-  applyMode();
 
-  window.addEventListener('keydown', (e) => {
-    if (e.key === '2') {
-      mode = mode === '2d' ? '3d' : '2d';
-      applyMode();
-    }
-  });
+  const modeToggle = new ModeToggle(currentMode, applyMode);
+  applyMode(currentMode);
+
+  // ── FPS counter ────────────────────────────────────────────────────────────
+  const fpsCounter = new FpsCounter();
 
   // ── Update loop ───────────────────────────────────────────────────────────
   const rotDegPerSec = ROTATE_SPEED * (180 / Math.PI);
 
   app.on('update', (dt) => {
-    if (mode === '2d') {
+    fpsCounter.update(dt);
+    if (modeToggle.mode === '2d') {
       for (const cell of cells2d) {
         cell.update(dt);
         cell.draw(app);

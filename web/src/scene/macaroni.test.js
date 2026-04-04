@@ -69,12 +69,15 @@ describe('Macaroni', () => {
   it('flash completes and LEDs go off', () => {
     mac.applyEffect({ type: 'flash', color: [0, 255, 0], duration: 0.4 });
 
-    // Run past the end
+    // Run past the end — effect marks itself finished
     mac.update(0.5);
 
     for (const led of mac.leds) {
       expect(led.light.intensity).toBe(0);
     }
+
+    // Finished effects are pruned at the start of the next update
+    mac.update(0);
     expect(mac._effects.length).toBe(0);
   });
 
