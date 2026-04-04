@@ -14,8 +14,7 @@ export class WsClient {
     this._url = url;
     this._onFrame = onFrame;
     this._ws = null;
-    this._retryDelay = 100;
-    this._maxDelay = 1600;
+    this._retryDelay = 200;
     this._stopped = false;
   }
 
@@ -33,7 +32,6 @@ export class WsClient {
 
     this._ws.onopen = () => {
       console.log('[ws] connected');
-      this._retryDelay = 1000;  // reset backoff on success
     };
 
     this._ws.onmessage = (event) => {
@@ -44,6 +42,7 @@ export class WsClient {
         console.warn('[ws] bad JSON:', e);
         return;
       }
+      console.log('[ws] frame:', frame);
       this._onFrame(frame);
     };
 
@@ -65,6 +64,5 @@ export class WsClient {
   _scheduleReconnect() {
     if (this._stopped) return;
     setTimeout(() => this.connect(), this._retryDelay);
-    this._retryDelay = Math.min(this._retryDelay * 2, this._maxDelay);
   }
 }
