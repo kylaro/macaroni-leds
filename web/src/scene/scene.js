@@ -3,10 +3,10 @@ import { CameraFrame } from 'playcanvas';
 import { MacaroniCell } from './macaroni-cell.js';
 import {
   createTriangleMesh, createArcMesh,
-  TRI_CIRCUM, ARC_CX_REST, ARC_CY_REST, ARC_RADIUS, ARC_HALF_W,
-  ARC_REST_START, ARC_SPAN, ARC_Z0, ARC_Z1, ARC_LED_COUNT,
+  TRI_CIRCUM,
 } from './macaroni-mesh.js';
 import { centerGrid } from './hex-layout.js';
+import { createMacaroni } from './macaroni.js';
 
 const GRID_COLS      = 5;
 const GRID_ROWS      = 3;
@@ -114,67 +114,24 @@ export function createScene(app) {
   // For now, I think the effect is achieved by just using omni lights, because they reflect back on the arc.
   arcMat.update();
 
-  const cellEntities3d = [];
-  const arcEntities = [];
+  /** @type {Macaroni[]} */
+  const macaronis = [];
 
   positions.forEach(([x, y], i) => {
     const flipped = i % 2 !== 0;
-    const yOffset = flipped ? TRI_CIRCUM / 2 : 0;
+    const id = i + 1; // 1-based IDs; address 0 = broadcast
 
-    const cell = new pc.Entity(`cell-${i}`);
-    cell.setPosition(x, y + yOffset, 0);
-    app.root.addChild(cell);
-
-    const triEntity = new pc.Entity('tri');
-    triEntity.addComponent('render', {
-      meshInstances: [new pc.MeshInstance(flipped ? triMeshDown : triMeshUp, triMat)],
+    const mac = createMacaroni({
+      id,
+      app,
+      x, y,
+      flipped,
+      triMesh: flipped ? triMeshDown : triMeshUp,
+      arcMesh: flipped ? arcMeshDown : arcMeshUp,
+      triMat,
+      arcMat,
     });
-    cell.addChild(triEntity);
-
-    const arcEntity = new pc.Entity('arc');
-    arcEntity.addComponent('render', {
-      meshInstances: [new pc.MeshInstance(flipped ? arcMeshDown : arcMeshUp, arcMat)],
-    });
-    cell.addChild(arcEntity);
-    arcEntities.push(arcEntity);
-    cellEntities3d.push(cell);
-
-    // ── LEDs on inner (concave) face ────────────────────────────────────
-    const yS    = flipped ? -1 : 1;
-    const innerR = ARC_RADIUS - ARC_HALF_W;
-    const ledZ   = (ARC_Z0 + ARC_Z1) / 2;
-
-    for (let li = 0; li < ARC_LED_COUNT; li++) {
-      const t    = ARC_REST_START + (li + 0.5) / ARC_LED_COUNT * ARC_SPAN;
-      const cosT = Math.cos(t);
-      const sinT = Math.sin(t);
-
-      const led = new pc.Entity(`led-${i}-${li}`);
-      // TODO - I want to try using spot lights, but face them toward the arch instead of away.
-      led.addComponent('light', {
-        type: 'omni',
-        color: new pc.Color(0, 1, 0),
-        intensity: 1,
-        range: 0.2,
-        innerConeAngle: 50,
-        outerConeAngle: 60,  // 120° total cone
-        castShadows: false,
-      });
-      // Add to hierarchy first so world transforms are correct for lookAt
-      arcEntity.addChild(led);
-      led.setLocalPosition(
-        ARC_CX_REST + innerR * cosT + 0.1,
-        yS * (ARC_CY_REST + innerR * sinT),
-        ledZ+0.03,
-      );
-      // Point inward toward the center of curvature (world-space coords)
-      led.lookAt(new pc.Vec3(
-        x + ARC_CX_REST + 0,
-        y + yOffset + yS * ARC_CY_REST,
-        ledZ,
-      ));
-      led.rotateLocal(90, 0, 0);
-    }
+    macaronis.push(mac);
   });
 
   // ── Camera orbit (click-drag, clamped ±45°) ────────────────────────────
@@ -224,7 +181,7 @@ export function createScene(app) {
   // ── Mode switching ────────────────────────────────────────────────────────
   function applyMode() {
     const is3d = mode === '3d';
-    for (const cell of cellEntities3d) cell.enabled = is3d;
+    for (const mac of macaronis) mac.cell.enabled = is3d;
     camera.camera.fov = is3d ? 53 : 90;
     updateCameraOrbit();
   }
@@ -247,13 +204,28 @@ export function createScene(app) {
         cell.draw(app);
       }
     } else {
-      for (const arc of arcEntities) {
-        arc.rotateLocal(0, 0, rotDegPerSec * dt);
+      for (const mac of macaronis) {
+        mac.arc.rotateLocal(0, 0, rotDegPerSec * dt);
+        mac.update(dt);
       }
     }
   });
 
   return {
-    updateFrame(_frame) {},
+    /**
+     * Handle an incoming frame from the WebSocket.
+     * Expects: { address: number, effect: { type, color?, duration? } }
+     * address 0 = broadcast to all macaronis.
+     */
+    updateFrame(frame) {
+      if (!frame.effect) return;
+      const addr = frame.address ?? 0;
+      if (addr === 0) {
+        for (const mac of macaronis) mac.applyEffect(frame.effect);
+      } else {
+        const mac = macaronis.find(m => m.id === addr);
+        if (mac) mac.applyEffect(frame.effect);
+      }
+    },
   };
 }
