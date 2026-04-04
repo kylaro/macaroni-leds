@@ -103,7 +103,7 @@ export function createScene(app) {
   arcMat.diffuse.set(0.85, 0.85, 0.85);
   arcMat.specular.set(0.2, 0.2, 0.2);
   arcMat.shininess = 64;
-  arcMat.emissive.set(0.3, 0.4, 0.3);  // subtle green-tinted glow matching the LEDs
+  arcMat.emissive.set(0, 0, 0);  // Unused for now.
   arcMat.emissiveIntensity = 0;
   // TODO - The arcs could be multiple materials
   // It would actually be ideal for the arcs to be made of multiple segments.
@@ -214,17 +214,24 @@ export function createScene(app) {
   return {
     /**
      * Handle an incoming frame from the WebSocket.
-     * Expects: { address: number, effect: { type, color?, duration? } }
+     * Expects: { effect_name, address, color?, duration_ms? }
      * address 0 = broadcast to all macaronis.
      */
     updateFrame(frame) {
-      if (!frame.effect) return;
+      const effectType = frame.effect_name;
+      if (!effectType) return;
+
+      const effect = {
+        type: effectType,
+        color: frame.color,
+        duration: frame.duration_ms != null ? frame.duration_ms / 1000 : undefined,
+      };
       const addr = frame.address ?? 0;
       if (addr === 0) {
-        for (const mac of macaronis) mac.applyEffect(frame.effect);
+        for (const mac of macaronis) mac.applyEffect(effect);
       } else {
         const mac = macaronis.find(m => m.id === addr);
-        if (mac) mac.applyEffect(frame.effect);
+        if (mac) mac.applyEffect(effect);
       }
     },
   };

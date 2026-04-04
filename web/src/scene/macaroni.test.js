@@ -5,7 +5,9 @@ import { Macaroni } from './macaroni.js';
 function fakeLed() {
   return {
     light: {
-      color: { r: 0, g: 0, b: 0, set(r, g, b) { this.r = r; this.g = g; this.b = b; } },
+      // _setAllLeds assigns a new pc.Color, so color is replaced by reference.
+      // The fake just needs to be a plain object with r/g/b fields.
+      color: { r: 0, g: 0, b: 0 },
       intensity: 0,
     },
   };
@@ -60,7 +62,7 @@ describe('Macaroni', () => {
     mac.update(0.5);
     for (const led of mac.leds) {
       expect(led.light.intensity).toBeCloseTo(0.5, 5);
-      expect(led.light.color.r).toBeCloseTo(0.5, 5);
+      expect(led.light.color.r).toBeCloseTo(1, 5);
     }
   });
 

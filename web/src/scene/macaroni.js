@@ -28,7 +28,7 @@ export class Macaroni {
     /** @type {{ type: string, color: pc.Color, elapsed: number, duration: number } | null} */
     this._effect = null;
 
-    // Base state: LEDs off
+    // LEDs off until an effect is applied
     this._setAllLeds(0, 0, 0, 0);
   }
 
@@ -41,12 +41,12 @@ export class Macaroni {
       const [r, g, b] = effect.color || [255, 255, 255];
       this._effect = {
         type: 'flash',
-        color: new pc.Color(r / 255, g / 255, b / 255),
+        color: new pc.Color(r / 255.0, g / 255.0, b / 255.0),
         elapsed: 0,
         duration: effect.duration || FLASH_DURATION,
       };
       // Snap LEDs to full color immediately
-      this._setAllLeds(r / 255, g / 255, b / 255, 1);
+      this._setAllLeds(r / 255.0, g / 255.0, b / 255.0, 1);
     }
   }
 
@@ -63,24 +63,20 @@ export class Macaroni {
     if (fx.type === 'flash') {
       const t = Math.min(fx.elapsed / fx.duration, 1);
       const brightness = 1 - t; // linear fade out
-      this._setAllLeds(
-        fx.color.r * brightness,
-        fx.color.g * brightness,
-        fx.color.b * brightness,
-        brightness,
-      );
+      this._setAllLeds(fx.color.r, fx.color.g, fx.color.b, brightness);
       if (t >= 1) {
+        this._setAllLeds(0, 0, 0, 0);
         this._effect = null;
       }
     }
   }
 
   /**
-   * Set all LED lights to the same color and intensity.
+   * Set all LED lights to the same color. Values >1 act as HDR multipliers.
    */
   _setAllLeds(r, g, b, intensity) {
     for (const led of this.leds) {
-      led.light.color.set(r, g, b);
+      led.light.color = new pc.Color(r, g, b);
       led.light.intensity = intensity;
     }
   }
@@ -136,21 +132,15 @@ export function createMacaroni({ id, app, x, y, flipped, triMesh, arcMesh, triMa
       type: 'omni',
       color: new pc.Color(0, 0, 0),
       intensity: 0,
-      range: 0.2,
+      range: 0.3,
       castShadows: false,
     });
     arcEntity.addChild(led);
     led.setLocalPosition(
-      ARC_CX_REST + innerR * cosT + 0.1,
+      ARC_CX_REST + innerR * cosT,
       yS * (ARC_CY_REST + innerR * sinT),
-      ledZ + 0.03,
-    );
-    led.lookAt(new pc.Vec3(
-      x + ARC_CX_REST,
-      y + yOffset + yS * ARC_CY_REST,
       ledZ,
-    ));
-    led.rotateLocal(90, 0, 0);
+    );
     leds.push(led);
   }
 
