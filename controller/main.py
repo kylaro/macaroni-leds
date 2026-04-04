@@ -25,7 +25,7 @@ async def main():
     log.info("Controller running. Sending test effects — connect a browser to see them.")
 
     try:
-        cycle = [EffectID.FLASH, EffectID.RAINBOW, EffectID.SHIMMER]
+        cycle = [EffectID.FLASH, EffectID.RAINBOW]
         i = 0
         while True:
             eid = cycle[i % len(cycle)]

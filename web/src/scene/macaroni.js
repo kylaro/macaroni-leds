@@ -3,13 +3,15 @@ import {
   TRI_CIRCUM, ARC_CX_REST, ARC_CY_REST, ARC_RADIUS, ARC_HALF_W,
   ARC_REST_START, ARC_SPAN, ARC_Z0, ARC_Z1, ARC_LED_COUNT,
 } from './macaroni-mesh.js';
-
-const FLASH_DURATION = 0.4; // seconds
+import { createEffect } from '../effects/registry.js';
 
 /**
  * Represents a single macaroni unit in the scene.
  * Owns its PlayCanvas entities (cell, triangle, arc, LEDs) and handles
- * LED effects internally.
+ * LED effects via the pluggable effect system.
+ *
+ * Multiple effects can run simultaneously. Each frame, all active effects
+ * contribute per-LED colors which are averaged together.
  */
 export class Macaroni {
   /**
@@ -25,54 +27,73 @@ export class Macaroni {
     this.arc = arc;
     this.leds = leds;
 
-    /** @type {{ type: string, color: pc.Color, elapsed: number, duration: number } | null} */
-    this._effect = null;
+    /** @type {object[]} Active effect instances */
+    this._effects = [];
 
     // LEDs off until an effect is applied
     this._setAllLeds(0, 0, 0, 0);
   }
 
   /**
-   * Apply an effect to this macaroni.
-   * @param {{ type: string, color?: number[], duration?: number }} effect
+   * Apply an effect to this macaroni. The effect is added to the active
+   * effects list and blends with any already-running effects.
+   * @param {{ type: string, color?: number[], duration?: number, speed?: number }} effect
    */
   applyEffect(effect) {
-    if (effect.type === 'flash') {
-      const [r, g, b] = effect.color || [255, 255, 255];
-      this._effect = {
-        type: 'flash',
-        color: new pc.Color(r / 255.0, g / 255.0, b / 255.0),
-        elapsed: 0,
-        duration: effect.duration || FLASH_DURATION,
-      };
-      // Snap LEDs to full color immediately
-      this._setAllLeds(r / 255.0, g / 255.0, b / 255.0, 1);
-    }
+    const fx = createEffect(effect.type, effect);
+    if (!fx) return;
+    this._effects.push(fx);
   }
 
   /**
    * Called every frame from the app update loop.
+   * Updates all active effects, blends their outputs, and applies to LEDs.
    * @param {number} dt - delta time in seconds
    */
   update(dt) {
-    if (!this._effect) return;
+    if (this._effects.length === 0) return;
 
-    const fx = this._effect;
-    fx.elapsed += dt;
+    const ledCount = this.leds.length;
+    const contributions = [];
 
-    if (fx.type === 'flash') {
-      const t = Math.min(fx.elapsed / fx.duration, 1);
-      const brightness = 1 - t; // linear fade out
-      this._setAllLeds(fx.color.r, fx.color.g, fx.color.b, brightness);
-      if (t >= 1) {
-        this._setAllLeds(0, 0, 0, 0);
-        this._effect = null;
+    // Remove finished effects
+    this._effects = this._effects.filter(fx => !fx.finished);
+
+    for (const fx of this._effects) {
+      contributions.push(fx.update(dt, ledCount));
+    }
+
+    // Blend: average all contributions per LED
+    const n = contributions.length;
+    if (n === 0) {
+      this._setAllLeds(0, 0, 0, 0);
+      return;
+    }
+
+    for (let i = 0; i < ledCount; i++) {
+      let r = 0, g = 0, b = 0;
+      for (let c = 0; c < n; c++) {
+        r += contributions[c][i].r;
+        g += contributions[c][i].g;
+        b += contributions[c][i].b;
+      }
+      r /= n;
+      g /= n;
+      b /= n;
+      const intensity = Math.max(r, g, b);
+      if (intensity > 0) {
+        this.leds[i].light.color = new pc.Color(r / intensity, g / intensity, b / intensity);
+        this.leds[i].light.intensity = intensity;
+        this.leds[i].light.range = 0.6*(intensity**0.5);
+      } else {
+        this.leds[i].light.color = new pc.Color(0, 0, 0);
+        this.leds[i].light.intensity = 0;
       }
     }
   }
 
   /**
-   * Set all LED lights to the same color. Values >1 act as HDR multipliers.
+   * Set all LED lights to the same color.
    */
   _setAllLeds(r, g, b, intensity) {
     for (const led of this.leds) {
